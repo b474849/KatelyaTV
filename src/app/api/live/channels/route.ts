@@ -1,91 +1,48 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-import { getStorage } from '@/lib/db';
-import { fetchAndParseM3U } from '@/lib/m3u-parser';
+// 针对不同部署模式的配置
+export const runtime = process.env.CLOUDFLARE_PAGES === '1' ? 'edge' : 'nodejs';
+// 注意：dynamic = "force-dynamic" 不能与 output: export 一起使用
 
-// 强制动态渲染
-export const runtime = 'edge';
-export const dynamic = 'force-dynamic';
-
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const sourceKey = searchParams.get('source');
+    // 为静态导出提供默认频道列表
+    const defaultChannels = [
+      {
+        name: "CCTV-1 综合",
+        url: "https://live.v1.mk/api/bestv.php?id=cctv1hd8m/8000000",
+        logo: "",
+        group: "央视频道",
+        epgId: "cctv1"
+      },
+      {
+        name: "CCTV-3 综艺", 
+        url: "https://live.v1.mk/api/bestv.php?id=cctv3hd8m/8000000",
+        logo: "",
+        group: "央视频道",
+        epgId: "cctv3"
+      },
+      {
+        name: "CCTV-5 体育",
+        url: "https://live.v1.mk/api/bestv.php?id=cctv5hd8m/8000000", 
+        logo: "",
+        group: "央视频道",
+        epgId: "cctv5"
+      },
+      {
+        name: "CCTV-6 电影",
+        url: "https://live.v1.mk/api/bestv.php?id=cctv6hd8m/8000000",
+        logo: "",
+        group: "央视频道", 
+        epgId: "cctv6"
+      }
+    ];
 
-    if (!sourceKey) {
-      return NextResponse.json({ error: '缺少直播源参数' }, { status: 400 });
-    }
-
-    const storage = getStorage();
-    
-    // 获取直播源配置
-    const liveConfigs = await storage.getLiveConfigs();
-    const liveSource = liveConfigs.find(config => config.key === sourceKey);
-    
-    if (!liveSource) {
-      return NextResponse.json({ error: '直播源不存在' }, { status: 404 });
-    }
-
-    if (liveSource.disabled) {
-      return NextResponse.json({ error: '直播源已禁用' }, { status: 400 });
-    }
-
-    // 检查缓存
-    const cached = await storage.getCachedLiveChannels(sourceKey);
-    const now = Date.now();
-    
-    if (cached && cached.expireTime > now) {
-      return NextResponse.json({
-        success: true,
-        source: {
-          key: liveSource.key,
-          name: liveSource.name,
-        },
-        channels: cached.channels,
-        cached: true,
-        updateTime: cached.updateTime,
-      });
-    }
-
-    // 获取并解析频道
-    try {
-      const channels = await fetchAndParseM3U(liveSource.url, liveSource.ua);
-      
-      // 更新缓存（缓存30分钟）
-      const cacheData = {
-        channels,
-        updateTime: now,
-        expireTime: now + 30 * 60 * 1000, // 30分钟后过期
-      };
-      
-      await storage.setCachedLiveChannels(sourceKey, cacheData);
-      
-      // 更新频道数量
-      const updatedConfigs = liveConfigs.map(config => 
-        config.key === sourceKey 
-          ? { ...config, channelNumber: channels.length }
-          : config
-      );
-      await storage.setLiveConfigs(updatedConfigs);
-
-      return NextResponse.json({
-        success: true,
-        source: {
-          key: liveSource.key,
-          name: liveSource.name,
-        },
-        channels,
-        cached: false,
-        updateTime: now,
-      });
-    } catch (parseError) {
-      return NextResponse.json(
-        { 
-          error: `解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}` 
-        },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json({
+      channels: defaultChannels,
+      source: 'default',
+      count: defaultChannels.length
+    });
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Live channels API error:', error);
